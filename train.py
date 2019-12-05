@@ -11,7 +11,9 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-from evaluate import evaluate
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+
+from evaluate import evaluate # These two lines requires GPU
 from onsets_and_frames import *
 
 ex = Experiment('train_transcriber')
