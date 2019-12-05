@@ -57,8 +57,8 @@ class OnsetsAndFrames(nn.Module):
         sequence_model = lambda input_size, output_size: BiLSTM(input_size, output_size // 2)
 
         self.onset_stack = nn.Sequential(
-            ConvStack(input_features, model_size),
-            sequence_model(model_size, model_size),
+            ConvStack(input_features, model_size), #(batch, 640, 768)
+            sequence_model(model_size, model_size), #(batch, 640, 768)
             nn.Linear(model_size, output_features),
             nn.Sigmoid()
         )
@@ -99,7 +99,7 @@ class OnsetsAndFrames(nn.Module):
         frame_label = batch['frame']
         velocity_label = batch['velocity']
 
-        mel = melspectrogram(audio_label.reshape(-1, audio_label.shape[-1])[:, :-1]).transpose(-1, -2)
+        mel = melspectrogram(audio_label.reshape(-1, audio_label.shape[-1])[:, :-1]).transpose(-1, -2) # x = torch.rand(8,640,229)
         onset_pred, offset_pred, _, frame_pred, velocity_pred = self(mel)
 
         predictions = {
