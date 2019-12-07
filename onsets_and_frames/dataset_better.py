@@ -33,6 +33,8 @@ class PianoRollAudioDataset(Dataset):
 
         if self.sequence_length is not None:
             audio_length = len(data['audio'])
+            print(f'audio_length = {audio_length}')
+            print(f'self.sequence_length = {self.sequence_length}')
             step_begin = self.random.randint(audio_length - self.sequence_length) // HOP_LENGTH
             n_steps = self.sequence_length // HOP_LENGTH
             step_end = step_begin + n_steps
@@ -40,20 +42,20 @@ class PianoRollAudioDataset(Dataset):
             begin = step_begin * HOP_LENGTH
             end = begin + self.sequence_length
 
-            result['audio'] = data['audio'][begin:end].to(self.device)
-            result['label'] = data['label'][step_begin:step_end, :].to(self.device)
-            result['velocity'] = data['velocity'][step_begin:step_end, :].to(self.device)
-
+            result['audio'] = data['audio'][begin:end]
+            result['label'] = data['label'][step_begin:step_end, :]
+            result['velocity'] = data['velocity'][step_begin:step_end, :]
         else:
-            result['audio'] = data['audio'].to(self.device)
-            result['label'] = data['label'].to(self.device)
-            result['velocity'] = data['velocity'].to(self.device).float()
+            result['audio'] = data['audio']
+            result['label'] = data['label']
+            result['velocity'] = data['velocity']
 
-        result['audio'] = result['audio'].float().div_(32768.0)
-        result['onset'] = (result['label'] == 3).float()
-        result['offset'] = (result['label'] == 1).float()
-        result['frame'] = (result['label'] > 1).float()
-        result['velocity'] = result['velocity'].float().div_(128.0)
+        result['audio'] = result['audio']/(32768.0)
+        result['onset'] = (result['label'] == 3)
+        result['offset'] = (result['label'] == 1)
+        result['frame'] = (result['label'] > 1)
+        print(f"result['velocity'] = {result['velocity']}")
+        result['velocity'] = result['velocity'].div_(128.0)
 
         return result
 
