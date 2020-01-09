@@ -11,9 +11,10 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 from evaluate import evaluate, evaluate_wo_velocity # These two lines requires GPU
 from onsets_and_frames import *
+from onsets_and_frames.transcriber import OnsetsAndFrames_TCN, OnsetsAndFrames_biTCN
 ex = Experiment('train_transcriber')
 
 
@@ -77,7 +78,7 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
     loader = DataLoader(dataset, batch_size, shuffle=True, drop_last=True)
 
     if resume_iteration is None:
-        model = OnsetsAndFrames(N_MELS, MAX_MIDI - MIN_MIDI + 1, model_complexity).to(device)
+        model = OnsetsAndFrames_biTCN(N_MELS, MAX_MIDI - MIN_MIDI + 1, model_complexity).to(device)
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0
     else:
