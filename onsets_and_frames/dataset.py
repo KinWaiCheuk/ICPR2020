@@ -25,7 +25,7 @@ class PianoRollAudioDataset(Dataset):
               f"of {self.__class__.__name__} at {path}")
         for group in groups:
             for input_files in tqdm(self.files(group), desc='Loading group %s' % group): #self.files is defined in MAPS class
-                self.data.append(self.load(*input_files)) # self.load is a function defined below
+                self.data.append(self.load(*input_files)) # self.load is a function defined below. It first loads all data into memory first
 
     def __getitem__(self, index):
         data = self.data[index]
@@ -43,13 +43,12 @@ class PianoRollAudioDataset(Dataset):
             result['audio'] = data['audio'][begin:end].to(self.device)
             result['label'] = data['label'][step_begin:step_end, :].to(self.device)
             result['velocity'] = data['velocity'][step_begin:step_end, :].to(self.device)
-
         else:
             result['audio'] = data['audio'].to(self.device)
             result['label'] = data['label'].to(self.device)
             result['velocity'] = data['velocity'].to(self.device).float()
 
-        result['audio'] = result['audio'].float().div_(32768.0)
+        result['audio'] = result['audio'].float().div_(32768.0) # converting to float by dividing it by 2^15
         result['onset'] = (result['label'] == 3).float()
         result['offset'] = (result['label'] == 1).float()
         result['frame'] = (result['label'] > 1).float()
@@ -92,16 +91,14 @@ class PianoRollAudioDataset(Dataset):
             velocity: torch.ByteTensor, shape = [num_steps, midi_bins]
                 a matrix that contains MIDI velocity values at the frame locations
         """
-        saved_data_path = audio_path.replace('.flac', '.bin').replace('.wav', '.bin')
+        saved_data_path = audio_path.replace('.flac', '.pt').replace('.wav', '.pt')
         if os.path.exists(saved_data_path): # Check if files exist, if so just load the files
-            #return torch.load(saved_data_path)
-            audio = np.fromfile(audio_path, dtype='int16')
-        else: # Otherwise do data processing
-            audio, sr = soundfile.read(audio_path, dtype='int16')
-            audio.tofile(saved_data_path)
-            assert sr == SAMPLE_RATE
+            return torch.load(saved_data_path)
 
-        # audio = torch.ShortTensor(audio) 
+        audio, sr = soundfile.read(audio_path, dtype='int16')
+        assert sr == SAMPLE_RATE
+
+        audio = torch.ShortTensor(audio)
         audio_length = len(audio)
 
         n_keys = MAX_MIDI - MIN_MIDI + 1
@@ -125,8 +122,10 @@ class PianoRollAudioDataset(Dataset):
             label[onset_right:frame_right, f] = 2
             label[frame_right:offset_right, f] = 1
             velocity[left:frame_right, f] = vel
-        
-        return dict(path=audio_path, audio=audio, label=label, velocity=velocity)
+
+        data = dict(path=audio_path, audio=audio, label=label, velocity=velocity)
+        torch.save(data, saved_data_path)
+        return data
 
 
 class MAESTRO(PianoRollAudioDataset):
@@ -167,7 +166,6 @@ class MAESTRO(PianoRollAudioDataset):
 
 
 class MAPS(PianoRollAudioDataset):
-    # sr - 16000 for all MAPS dataset
     def __init__(self, path='data/MAPS', groups=None, sequence_length=None, seed=42, device=DEFAULT_DEVICE):
         super().__init__(path, groups if groups is not None else ['ENSTDkAm', 'ENSTDkCl'], sequence_length, seed, device)
 

@@ -22,7 +22,7 @@ ex = Experiment('train_transcriber')
 
 @ex.config
 def config():
-    logdir = 'runs/transcriber-' + datetime.now().strftime('%y%m%d-%H%M%S')
+    logdir = 'runs/TCN-' + datetime.now().strftime('%y%m%d-%H%M%S')
     device = f'cuda' if torch.cuda.is_available() else 'cpu'
     iterations = 500000
     resume_iteration = None
@@ -38,8 +38,8 @@ def config():
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
 
-    learning_rate = 0.0006
-    learning_rate_decay_steps = 10000
+    learning_rate = 5e-4
+    learning_rate_decay_steps = 300
     learning_rate_decay_rate = 0.98
 
     leave_one_out = None
@@ -77,8 +77,10 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
 
     loader = DataLoader(dataset, batch_size, shuffle=True, drop_last=True)
 
+    TCN_layers = [3*4**x for x in range(5)]
+
     if resume_iteration is None:
-        model = OnsetsAndFrames_TCN(N_MELS, MAX_MIDI - MIN_MIDI + 1, model_complexity).to(device)
+        model = OnsetsAndFrames_TCN(N_MELS, MAX_MIDI - MIN_MIDI + 1, TCN_layers, model_complexity).to(device)
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0
     else:
@@ -91,7 +93,7 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
     scheduler = StepLR(optimizer, step_size=learning_rate_decay_steps, gamma=learning_rate_decay_rate)
 
     # loop = tqdm(range(resume_iteration + 1, iterations + 1))
-    epoches = 2000
+    epoches = 1000
     total_batch = len(loader.dataset)
     for ep in range(1, epoches):
         model.train()
@@ -117,7 +119,7 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
         print(' '*100, end = '\r')            
         print(f'Train Epoch: {ep}\tLoss: {total_loss/len(loader):.6f}')
 
-        if (ep+1)%10 == 0 and ep > 50:
+        if (ep+1)%10 == 0 and ep+1 > 20:
             model.eval()
             with torch.no_grad():
                 for key, values in evaluate_wo_velocity(validation_dataset, model).items():

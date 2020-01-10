@@ -1,6 +1,51 @@
 import numpy as np
 import torch
 
+def extract_notes_wo_velocity(onsets, frames, onset_threshold=0.5, frame_threshold=0.5):
+    """
+    Finds the note timings based on the onsets and frames information
+
+    Parameters
+    ----------
+    onsets: torch.FloatTensor, shape = [frames, bins]
+    frames: torch.FloatTensor, shape = [frames, bins]
+    velocity: torch.FloatTensor, shape = [frames, bins]
+    onset_threshold: float
+    frame_threshold: float
+
+    Returns
+    -------
+    pitches: np.ndarray of bin_indices
+    intervals: np.ndarray of rows containing (onset_index, offset_index)
+    velocities: np.ndarray of velocity values
+    """
+    onsets = (onsets > onset_threshold).cpu().to(torch.uint8)
+    frames = (frames > frame_threshold).cpu().to(torch.uint8)
+    onset_diff = torch.cat([onsets[:1, :], onsets[1:, :] - onsets[:-1, :]], dim=0) == 1 # Make sure the activation is only 1 time-step
+
+    pitches = []
+    intervals = []
+
+    for nonzero in onset_diff.nonzero():
+        frame = nonzero[0].item()
+        pitch = nonzero[1].item()
+
+        onset = frame
+        offset = frame
+
+        # This while loop is looking for where does the note ends
+        while onsets[offset, pitch].item() or frames[offset, pitch].item():
+            offset += 1
+            if offset == onsets.shape[0]:
+                break
+
+        # After knowing where does the note start and end, we can return the pitch information (and velocity)        
+        if offset > onset:
+            pitches.append(pitch)
+            intervals.append([onset, offset])
+
+    return np.array(pitches), np.array(intervals)
+
 
 def extract_notes(onsets, frames, velocity, onset_threshold=0.5, frame_threshold=0.5):
     """
@@ -22,7 +67,7 @@ def extract_notes(onsets, frames, velocity, onset_threshold=0.5, frame_threshold
     """
     onsets = (onsets > onset_threshold).cpu().to(torch.uint8)
     frames = (frames > frame_threshold).cpu().to(torch.uint8)
-    onset_diff = torch.cat([onsets[:1, :], onsets[1:, :] - onsets[:-1, :]], dim=0) == 1
+    onset_diff = torch.cat([onsets[:1, :], onsets[1:, :] - onsets[:-1, :]], dim=0) == 1 # Make sure the activation is only 1 time-step
 
     pitches = []
     intervals = []
@@ -36,6 +81,7 @@ def extract_notes(onsets, frames, velocity, onset_threshold=0.5, frame_threshold
         offset = frame
         velocity_samples = []
 
+        # This while loop is looking for where does the note ends
         while onsets[offset, pitch].item() or frames[offset, pitch].item():
             if onsets[offset, pitch].item():
                 velocity_samples.append(velocity[offset, pitch].item())
@@ -43,6 +89,7 @@ def extract_notes(onsets, frames, velocity, onset_threshold=0.5, frame_threshold
             if offset == onsets.shape[0]:
                 break
 
+        # After knowing where does the note start and end, we can return the pitch information (and velocity)        
         if offset > onset:
             pitches.append(pitch)
             intervals.append([onset, offset])
