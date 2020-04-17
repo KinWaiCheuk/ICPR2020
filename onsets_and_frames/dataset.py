@@ -13,12 +13,13 @@ from .midi import parse_midi
 
 
 class PianoRollAudioDataset(Dataset):
-    def __init__(self, path, groups=None, sequence_length=None, seed=42, device=DEFAULT_DEVICE):
+    def __init__(self, path, groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
         self.path = path
         self.groups = groups if groups is not None else self.available_groups()
         self.sequence_length = sequence_length
         self.device = device
         self.random = np.random.RandomState(seed)
+        self.refresh = refresh
 
         self.data = []
         print(f"Loading {len(groups)} group{'s' if len(groups) > 1 else ''} "
@@ -28,12 +29,15 @@ class PianoRollAudioDataset(Dataset):
                 self.data.append(self.load(*input_files)) # self.load is a function defined below. It first loads all data into memory first
 
     def __getitem__(self, index):
+
         data = self.data[index]
         result = dict(path=data['path'])
 
         if self.sequence_length is not None:
             audio_length = len(data['audio'])
             step_begin = self.random.randint(audio_length - self.sequence_length) // HOP_LENGTH
+            # print(f'step_begin = {step_begin}')
+            
             n_steps = self.sequence_length // HOP_LENGTH
             step_end = step_begin + n_steps
 
@@ -53,7 +57,8 @@ class PianoRollAudioDataset(Dataset):
         result['offset'] = (result['label'] == 1).float()
         result['frame'] = (result['label'] > 1).float()
         result['velocity'] = result['velocity'].float().div_(128.0)
-
+        # print(f"result['audio'].shape = {result['audio'].shape}")
+        # print(f"result['label'].shape = {result['label'].shape}")
         return result
 
     def __len__(self):
@@ -92,17 +97,17 @@ class PianoRollAudioDataset(Dataset):
                 a matrix that contains MIDI velocity values at the frame locations
         """
         saved_data_path = audio_path.replace('.flac', '.pt').replace('.wav', '.pt')
-        if os.path.exists(saved_data_path): # Check if files exist, if so just load the files
+        if os.path.exists(saved_data_path) and self.refresh==False: # Check if .pt files exist, if so just load the files
             return torch.load(saved_data_path)
-
+        # Otherwise, create the .pt files
         audio, sr = soundfile.read(audio_path, dtype='int16')
         assert sr == SAMPLE_RATE
 
-        audio = torch.ShortTensor(audio)
+        audio = torch.ShortTensor(audio) # convert numpy array to pytorch tensor
         audio_length = len(audio)
 
         n_keys = MAX_MIDI - MIN_MIDI + 1
-        n_steps = (audio_length - 1) // HOP_LENGTH + 1
+        n_steps = (audio_length - 1) // HOP_LENGTH + 1 # This will affect the labels time steps
 
         label = torch.zeros(n_steps, n_keys, dtype=torch.uint8)
         velocity = torch.zeros(n_steps, n_keys, dtype=torch.uint8)
@@ -111,10 +116,10 @@ class PianoRollAudioDataset(Dataset):
         midi = np.loadtxt(tsv_path, delimiter='\t', skiprows=1)
 
         for onset, offset, note, vel in midi:
-            left = int(round(onset * SAMPLE_RATE / HOP_LENGTH))
-            onset_right = min(n_steps, left + HOPS_IN_ONSET)
+            left = int(round(onset * SAMPLE_RATE / HOP_LENGTH)) # Convert time to time step
+            onset_right = min(n_steps, left + HOPS_IN_ONSET) # Ensure the time step of onset would not exceed the last time step
             frame_right = int(round(offset * SAMPLE_RATE / HOP_LENGTH))
-            frame_right = min(n_steps, frame_right)
+            frame_right = min(n_steps, frame_right) # Ensure the time step of frame would not exceed the last time step
             offset_right = min(n_steps, frame_right + HOPS_IN_OFFSET)
 
             f = int(note) - MIN_MIDI
@@ -130,8 +135,8 @@ class PianoRollAudioDataset(Dataset):
 
 class MAESTRO(PianoRollAudioDataset):
 
-    def __init__(self, path='data/MAESTRO', groups=None, sequence_length=None, seed=42, device=DEFAULT_DEVICE):
-        super().__init__(path, groups if groups is not None else ['train'], sequence_length, seed, device)
+    def __init__(self, path='../../MAESTRO/maestro-v2.0.0', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
+        super().__init__(path, groups if groups is not None else ['train'], sequence_length, seed, refresh, device)
 
     @classmethod
     def available_groups(cls):
@@ -149,7 +154,7 @@ class MAESTRO(PianoRollAudioDataset):
             if len(files) == 0:
                 raise RuntimeError(f'Group {group} is empty')
         else:
-            metadata = json.load(open(os.path.join(self.path, 'maestro-v1.0.0.json')))
+            metadata = json.load(open(os.path.join(self.path, 'maestro-v2.0.0.json')))
             files = sorted([(os.path.join(self.path, row['audio_filename'].replace('.wav', '.flac')),
                              os.path.join(self.path, row['midi_filename'])) for row in metadata if row['split'] == group])
 
@@ -166,8 +171,8 @@ class MAESTRO(PianoRollAudioDataset):
 
 
 class MAPS(PianoRollAudioDataset):
-    def __init__(self, path='data/MAPS', groups=None, sequence_length=None, seed=42, device=DEFAULT_DEVICE):
-        super().__init__(path, groups if groups is not None else ['ENSTDkAm', 'ENSTDkCl'], sequence_length, seed, device)
+    def __init__(self, path='data/MAPS', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
+        super().__init__(path, groups if groups is not None else ['ENSTDkAm', 'ENSTDkCl'], sequence_length, seed, refresh, device)
 
     @classmethod
     def available_groups(cls):
@@ -175,7 +180,26 @@ class MAPS(PianoRollAudioDataset):
 
     def files(self, group):
         flacs = glob(os.path.join(self.path, 'flac', '*_%s.flac' % group))
-        tsvs = [f.replace('/flac/', '/tsv/matched/').replace('.flac', '.tsv') for f in flacs]
+        # tsvs = [f.replace('/flac/', '/tsv/matched/').replace('.flac', '.tsv') for f in flacs]
+        tsvs = [f.replace('/flac/', '/tsv_version2/').replace('.flac', '.tsv') for f in flacs]
+
+        assert(all(os.path.isfile(flac) for flac in flacs))
+        assert(all(os.path.isfile(tsv) for tsv in tsvs))
+
+        return sorted(zip(flacs, tsvs))
+
+class MAPS_v2(PianoRollAudioDataset):
+    def __init__(self, path='data/MAPS', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
+        super().__init__(path, groups if groups is not None else ['ENSTDkAm', 'ENSTDkCl'], sequence_length, seed, refresh, device)
+
+    @classmethod
+    def available_groups(cls):
+        return ['AkPnBcht', 'AkPnBsdf', 'AkPnCGdD', 'AkPnStgb', 'ENSTDkAm', 'ENSTDkCl', 'SptkBGAm', 'SptkBGCl', 'StbgTGd2']
+
+    def files(self, group):
+        # Getting the paths
+        flacs = glob(os.path.join(self.path, 'flac', '*_%s.flac' % group))
+        tsvs = [f.replace('/flac/', '/tsv_version2/').replace('.flac', '.tsv') for f in flacs]
 
         assert(all(os.path.isfile(flac) for flac in flacs))
         assert(all(os.path.isfile(tsv) for tsv in tsvs))

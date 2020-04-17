@@ -1,9 +1,10 @@
 import os
 from datetime import datetime
+import pickle
 
 import numpy as np
 from sacred import Experiment
-from sacred.commands import print_config
+from sacred.commands import print_config, save_config
 from sacred.observers import FileStorageObserver
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import StepLR
@@ -11,18 +12,24 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['CUDA_VISIBLE_DEVICES'] = '3'
 from evaluate import evaluate, evaluate_wo_velocity # These two lines requires GPU
 from onsets_and_frames import *
 from onsets_and_frames.transcriber import OnsetsAndFrames_TCN, OnsetsAndFrames_biTCN
 ex = Experiment('train_transcriber')
 
+def save_dict(obj, name ):
+    with open('./runs/config/'+ name + '.pkl', 'wb') as f:
+        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
 
-
+def load_obj(name):
+    with open('./runs/config/' + name + '.pkl', 'rb') as f:
+        return pickle.load(f)
 
 @ex.config
 def config():
-    logdir = 'runs/TCN_bi7-' + datetime.now().strftime('%y%m%d-%H%M%S')
+    TCN_layers = [600, 500, 400, 300, 200, 100]
+    logdir = 'runs/BiTCN-' + ','.join(str(x) for x in TCN_layers) + '-' + datetime.now().strftime('%y%m%d-%H%M%S')
     device = f'cuda' if torch.cuda.is_available() else 'cpu'
     iterations = 500000
     resume_iteration = None
@@ -32,14 +39,13 @@ def config():
     batch_size = 8
     sequence_length = 327680
     model_complexity = 48
-
     if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
         batch_size //= 2
         sequence_length //= 2
         print(f'Reducing batch size to {batch_size} and sequence_length to {sequence_length} to save memory')
 
-    learning_rate = 5e-4
-    learning_rate_decay_steps = 300
+    learning_rate = 0.0006
+    learning_rate_decay_steps = 10000
     learning_rate_decay_rate = 0.98
 
     leave_one_out = None
@@ -51,13 +57,15 @@ def config():
 
     ex.observers.append(FileStorageObserver.create(logdir))
 
+    refresh = False
+
 
 @ex.automain
 def train(logdir, device, iterations, resume_iteration, checkpoint_interval, train_on, batch_size, sequence_length,
           model_complexity, learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, leave_one_out,
-          clip_gradient_norm, validation_length, validation_interval):
+          clip_gradient_norm, validation_length, validation_interval, refresh, TCN_layers):
     print_config(ex.current_run)
-
+    save_dict(config(), os.path.basename(logdir))
     os.makedirs(logdir, exist_ok=True)
     writer = SummaryWriter(logdir)
 
@@ -72,13 +80,12 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
         dataset = MAESTRO(groups=train_groups, sequence_length=sequence_length)
         validation_dataset = MAESTRO(groups=validation_groups, sequence_length=sequence_length)
     else:
-        dataset = MAPS(groups=['AkPnBcht', 'AkPnBsdf', 'AkPnCGdD', 'AkPnStgb', 'SptkBGAm', 'SptkBGCl', 'StbgTGd2'], sequence_length=sequence_length)
-        validation_dataset = MAPS(groups=['ENSTDkAm', 'ENSTDkCl'], sequence_length=validation_length)
+        dataset = MAPS(groups=['AkPnBcht', 'AkPnBsdf', 'AkPnCGdD', 'AkPnStgb', 'SptkBGAm', 'SptkBGCl', 'StbgTGd2'], sequence_length=sequence_length, refresh=refresh)
+        validation_dataset = MAPS(groups=['ENSTDkAm', 'ENSTDkCl'], sequence_length=validation_length, refresh=refresh)
 
     loader = DataLoader(dataset, batch_size, shuffle=True, drop_last=True)
     # TCN_layers = [6*4**x for x in range(4)]
     # TCN_layers = [3*2**x for x in range(8)]
-    TCN_layers = [600, 500, 400, 300, 200, 100]
     if resume_iteration is None:
         model = OnsetsAndFrames_biTCN(N_MELS, MAX_MIDI - MIN_MIDI + 1, TCN_layers, 2, model_complexity).to(device)
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)

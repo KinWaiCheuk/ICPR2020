@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '3'
+os.environ['CUDA_VISIBLE_DEVICES'] = '2'
 from evaluate import evaluate, evaluate_wo_velocity # These two lines requires GPU
 from onsets_and_frames import *
 ex = Experiment('train_transcriber')
@@ -21,7 +21,7 @@ ex = Experiment('train_transcriber')
 
 @ex.config
 def config():
-    logdir = 'runs/transcriber-' + datetime.now().strftime('%y%m%d-%H%M%S')
+    logdir = 'runs/LSTM-hop256' + datetime.now().strftime('%y%m%d-%H%M%S')
     device = f'cuda' if torch.cuda.is_available() else 'cpu'
     iterations = 500000
     resume_iteration = None

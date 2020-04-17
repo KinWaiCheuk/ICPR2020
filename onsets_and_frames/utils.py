@@ -43,7 +43,7 @@ def summary(model, file=sys.stdout):
 
         main_str += ')'
         if file is sys.stdout:
-            main_str += ', \033[92m{:,}\033[0m params'.format(total_params)
+            main_str += ', \033[92m{:,}\033[0m params'.format(total_params) #[92m is green color, [0m is black color
         else:
             main_str += ', {:,} params'.format(total_params)
         return main_str, total_params
