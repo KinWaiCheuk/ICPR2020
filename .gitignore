@@ -4,3 +4,7 @@ __pycache__
 data
 runs
 runs_AE
+midi
+results
+test_audio
+trained_MAPS
