@@ -100,6 +100,7 @@ class PianoRollAudioDataset(Dataset):
         if os.path.exists(saved_data_path) and self.refresh==False: # Check if .pt files exist, if so just load the files
             return torch.load(saved_data_path)
         # Otherwise, create the .pt files
+        print("--------------Processing for the first time ------------------")
         audio, sr = soundfile.read(audio_path, dtype='int16')
         assert sr == SAMPLE_RATE
 

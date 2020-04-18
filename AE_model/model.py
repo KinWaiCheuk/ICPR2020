@@ -236,6 +236,81 @@ class Net(nn.Module):
 
         return predictions, losses, mel
 
+class Net_double_transcripters(nn.Module):
+    def __init__(self, ds_ksize, ds_stride, log=True):
+        super(Net_double_transcripters, self).__init__()
+        self.encoder = Encoder(ds_ksize, ds_stride)
+        self.decoder = Decoder(ds_ksize, ds_stride)
+        self.pianoroll_decoder = Decoder_Pianoroll(ds_ksize, ds_stride)
+        self.pianoroll_encoder = Encoder_Pianoroll(ds_ksize, ds_stride)
+        self.log = log
+
+    def forward(self, x):
+        vec,s,c = self.encoder(x)
+        pianoroll = self.pianoroll_decoder(vec,s,c)
+
+        vec,s,c = self.pianoroll_encoder(pianoroll)
+
+        reconstruction = self.decoder(vec,s,c) # predict roll
+
+        vec,s,c = self.encoder(reconstruction)
+        pianoroll2 = self.pianoroll_decoder(vec,s,c)
+        
+        return vec, reconstruction, pianoroll, pianoroll2
+
+
+    def run_on_batch(self, batch, semi_supervised=False):
+        audio_label = batch['audio']
+        onset_label = batch['onset']
+        frame_label = batch['frame']
+
+        mel = melspectrogram(audio_label.reshape(-1, audio_label.shape[-1])[:, :-1]) # x = torch.rand(8,229, 640)
+        mel = mel.transpose(-1,-2) # swap mel bins with timesteps so that it fits LSTM later # shape (8,640,229)
+        if self.log:
+            mel = torch.log(mel + 1e-5)
+            mel = normalize(mel)
+        # print(f'mel shape = {mel.shape}')
+
+        vec, reconstrut, pianoroll, pianoroll2 = self(mel.view(mel.size(0), 1, mel.size(1), mel.size(2)))
+        predictions = {
+            # 'onset': onset_pred.reshape(*onset_label.shape),
+            # # 'offset': offset_pred.reshape(*offset_label.shape),
+            # 'frame': frame_pred.reshape(*frame_label.shape),
+            # # 'velocity': velocity_pred.reshape(*velocity_label.shape)
+            'onset': pianoroll,
+            'frame': pianoroll,
+            'frame2':pianoroll2,
+            # 'offset': offset_pred.reshape(*offset_label.shape),
+            'reconstruction': reconstrut
+            # 'velocity': velocity_pred.reshape(*velocity_label.shape)
+
+            
+        }
+        if semi_supervised:
+            losses = {
+                # 'loss/onset': F.binary_cross_entropy(predictions['onset'], onset_label),
+                # 'loss/frame': F.binary_cross_entropy(predictions['frame'], frame_label),
+                # # 'loss/velocity': self.velocity_loss(predictions['velocity'], velocity_label, onset_label)
+
+                # 'loss/onset': onset_label,
+
+                    'loss/reconstruction': F.mse_loss(reconstrut.squeeze(1), mel.detach())
+                    }
+        else:
+            losses = {
+                # 'loss/onset': F.binary_cross_entropy(predictions['onset'], onset_label),
+                # 'loss/frame': F.binary_cross_entropy(predictions['frame'], frame_label),
+                # # 'loss/velocity': self.velocity_loss(predictions['velocity'], velocity_label, onset_label)
+
+                # 'loss/onset': onset_label,
+
+                    'loss/reconstruction': F.mse_loss(reconstrut.squeeze(1), mel.detach()),
+                    'loss/transcription': F.binary_cross_entropy(predictions['frame'].squeeze(1), frame_label),
+                    'loss/transcription2': F.binary_cross_entropy(predictions['frame2'].squeeze(1), frame_label)
+                    }
+
+        return predictions, losses, mel
+
 
 class LSTM_AE(nn.Module):
     def __init__(self, ds_ksize, ds_stride):

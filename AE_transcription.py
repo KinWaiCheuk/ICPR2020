@@ -28,14 +28,14 @@ ds_ksize, ds_stride = (2,2),(2,2)
 @ex.config
 def config():
     # logdir = f'runs_AE/CQTbatch32_WNet_narrow_z_dsksize{ds_ksize}_dsstride_{ds_stride}_' + '-' + datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'runs_AE/test-'+ datetime.now().strftime('%y%m%d-%H%M%S')
+    logdir = f'runs_AE/Double_Transcripters-MAPS-'+ datetime.now().strftime('%y%m%d-%H%M%S')
     device = f'cuda' if torch.cuda.is_available() else 'cpu'
     iterations = 500000
     resume_iteration = None
     checkpoint_interval = 1000
     train_on = 'MAPS'
 
-    batch_size = 32
+    batch_size = 16
     sequence_length = 327680
     model_complexity = 48
     if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
@@ -88,7 +88,7 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
     batch_visualize = next(iter(valloader)) # Getting one fixed batch for visualization
 
     if resume_iteration is None:
-        model = Net(ds_ksize,ds_stride, log=True)
+        model = Net_double_transcripters(ds_ksize,ds_stride, log=True)
         model.to(device)
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0
@@ -191,6 +191,14 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
                 axs[idx].axis('off')
             fig.tight_layout()
             writer.add_figure('images/Transcription', fig , ep)
+
+            fig, axs = plt.subplots(2, 2, figsize=(24,4))
+            axs = axs.flat
+            for idx, i in enumerate(predictions['frame2'].detach().cpu().numpy()):
+                axs[idx].imshow(i.transpose(), origin='lower', vmax=1, vmin=0)
+                axs[idx].axis('off')
+            fig.tight_layout()
+            writer.add_figure('images/Transcription2', fig , ep)
 
         # writer.add_images('images/Reconstruction', predictions['reconstruction'], ep+1, dataformats='NCWH')
 
