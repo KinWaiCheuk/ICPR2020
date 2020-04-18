@@ -2,45 +2,40 @@ import os
 from datetime import datetime
 import pickle
 
+
 import numpy as np
 from sacred import Experiment
 from sacred.commands import print_config, save_config
 from sacred.observers import FileStorageObserver
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 from torch.nn.utils import clip_grad_norm_
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
-os.environ['CUDA_VISIBLE_DEVICES'] = '0'
-from evaluate import evaluate, evaluate_wo_velocity # These two lines requires GPU
+
+from evaluate import evaluate_wo_velocity # These two lines requires GPU
 from onsets_and_frames import *
 from AE_model import *
 import matplotlib.pyplot as plt
 
 ex = Experiment('train_transcriber')
 
-def save_dict(obj, name ):
-    with open('./runs/config/'+ name + '.pkl', 'wb') as f:
-        pickle.dump(obj, f, pickle.HIGHEST_PROTOCOL)
-
-def load_obj(name):
-    with open('./runs/config/' + name + '.pkl', 'rb') as f:
-        return pickle.load(f)
 
 ds_ksize, ds_stride = (2,2),(2,2)
 
 @ex.config
 def config():
     # logdir = f'runs_AE/CQTbatch32_WNet_narrow_z_dsksize{ds_ksize}_dsstride_{ds_stride}_' + '-' + datetime.now().strftime('%y%m%d-%H%M%S')
-    logdir = f'runs_AE/MAESTRO-Test_on_MAPS-'+ datetime.now().strftime('%y%m%d-%H%M%S')
+    logdir = f'runs_AE/test-'+ datetime.now().strftime('%y%m%d-%H%M%S')
     device = f'cuda' if torch.cuda.is_available() else 'cpu'
     iterations = 500000
     resume_iteration = None
     checkpoint_interval = 1000
-    train_on = 'MAESTRO'
+    train_on = 'MAPS'
 
-    batch_size = 16
+    batch_size = 32
     sequence_length = 327680
     model_complexity = 48
     if torch.cuda.is_available() and torch.cuda.get_device_properties(torch.cuda.current_device()).total_memory < 10e9:
@@ -69,7 +64,6 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
           model_complexity, learning_rate, learning_rate_decay_steps, learning_rate_decay_rate, leave_one_out,
           clip_gradient_norm, validation_length, validation_interval, refresh):
     print_config(ex.current_run)
-    save_dict(config(), os.path.basename(logdir))
     os.makedirs(logdir, exist_ok=True)
     writer = SummaryWriter(logdir)
 
@@ -120,7 +114,8 @@ def train(logdir, device, iterations, resume_iteration, checkpoint_interval, tra
         for batch in loader:
             predictions, losses, _ = model.run_on_batch(batch)
 
-            loss = sum(losses.values())
+            # loss = sum(losses.values())
+            loss = losses['loss/transcription']
             total_loss += loss.item()
             optimizer.zero_grad()
             loss.backward()

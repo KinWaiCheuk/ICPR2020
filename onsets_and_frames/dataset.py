@@ -135,7 +135,7 @@ class PianoRollAudioDataset(Dataset):
 
 class MAESTRO(PianoRollAudioDataset):
 
-    def __init__(self, path='../../MAESTRO/maestro-v2.0.0', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
+    def __init__(self, path='../MAESTRO/', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
         super().__init__(path, groups if groups is not None else ['train'], sequence_length, seed, refresh, device)
 
     @classmethod
@@ -171,7 +171,7 @@ class MAESTRO(PianoRollAudioDataset):
 
 
 class MAPS(PianoRollAudioDataset):
-    def __init__(self, path='data/MAPS', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
+    def __init__(self, path='../MAPS', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
         super().__init__(path, groups if groups is not None else ['ENSTDkAm', 'ENSTDkCl'], sequence_length, seed, refresh, device)
 
     @classmethod
@@ -181,7 +181,7 @@ class MAPS(PianoRollAudioDataset):
     def files(self, group):
         flacs = glob(os.path.join(self.path, 'flac', '*_%s.flac' % group))
         # tsvs = [f.replace('/flac/', '/tsv/matched/').replace('.flac', '.tsv') for f in flacs]
-        tsvs = [f.replace('/flac/', '/tsv_version2/').replace('.flac', '.tsv') for f in flacs]
+        tsvs = [f.replace('/flac/', '/tsvs/').replace('.flac', '.tsv') for f in flacs]
 
         assert(all(os.path.isfile(flac) for flac in flacs))
         assert(all(os.path.isfile(tsv) for tsv in tsvs))
