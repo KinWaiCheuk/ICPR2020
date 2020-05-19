@@ -10,9 +10,9 @@ HOPS_IN_OFFSET = OFFSET_LENGTH // HOP_LENGTH
 MIN_MIDI = 21
 MAX_MIDI = 108
 
-N_MELS = 229
+N_BINS = 229 # Default using Mel spectrograms
 MEL_FMIN = 30
 MEL_FMAX = SAMPLE_RATE // 2
 WINDOW_LENGTH = 2048
 
-DEFAULT_DEVICE = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+#DEFAULT_DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'

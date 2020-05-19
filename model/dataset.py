@@ -2,6 +2,8 @@ import json
 import os
 from abc import abstractmethod
 from glob import glob
+import sys
+
 
 import numpy as np
 import soundfile
@@ -13,7 +15,7 @@ from .midi import parse_midi
 
 
 class PianoRollAudioDataset(Dataset):
-    def __init__(self, path, groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
+    def __init__(self, path, groups=None, sequence_length=None, seed=42, refresh=False, device='cpu'):
         self.path = path
         self.groups = groups if groups is not None else self.available_groups()
         self.sequence_length = sequence_length
@@ -27,7 +29,6 @@ class PianoRollAudioDataset(Dataset):
         for group in groups:
             for input_files in tqdm(self.files(group), desc='Loading group %s' % group): #self.files is defined in MAPS class
                 self.data.append(self.load(*input_files)) # self.load is a function defined below. It first loads all data into memory first
-
     def __getitem__(self, index):
 
         data = self.data[index]
@@ -100,7 +101,6 @@ class PianoRollAudioDataset(Dataset):
         if os.path.exists(saved_data_path) and self.refresh==False: # Check if .pt files exist, if so just load the files
             return torch.load(saved_data_path)
         # Otherwise, create the .pt files
-        print("--------------Processing for the first time ------------------")
         audio, sr = soundfile.read(audio_path, dtype='int16')
         assert sr == SAMPLE_RATE
 
@@ -136,7 +136,7 @@ class PianoRollAudioDataset(Dataset):
 
 class MAESTRO(PianoRollAudioDataset):
 
-    def __init__(self, path='../MAESTRO/', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
+    def __init__(self, path='../../MAESTRO/', groups=None, sequence_length=None, seed=42, refresh=False, device='cpu'):
         super().__init__(path, groups if groups is not None else ['train'], sequence_length, seed, refresh, device)
 
     @classmethod
@@ -172,7 +172,7 @@ class MAESTRO(PianoRollAudioDataset):
 
 
 class MAPS(PianoRollAudioDataset):
-    def __init__(self, path='../MAPS', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
+    def __init__(self, path='../MAPS', groups=None, sequence_length=None, seed=42, refresh=False, device='cpu'):
         super().__init__(path, groups if groups is not None else ['ENSTDkAm', 'ENSTDkCl'], sequence_length, seed, refresh, device)
 
     @classmethod
@@ -189,20 +189,27 @@ class MAPS(PianoRollAudioDataset):
 
         return sorted(zip(flacs, tsvs))
 
-class MAPS_v2(PianoRollAudioDataset):
-    def __init__(self, path='data/MAPS', groups=None, sequence_length=None, seed=42, refresh=False, device=DEFAULT_DEVICE):
-        super().__init__(path, groups if groups is not None else ['ENSTDkAm', 'ENSTDkCl'], sequence_length, seed, refresh, device)
+class MusicNet(PianoRollAudioDataset):
+    def __init__(self, path='../IJCNN2020_music_transcription/data/', groups=None, sequence_length=None, seed=42, refresh=False, device='cpu'):
+        super().__init__(path, groups if groups is not None else ['train'], sequence_length, seed, refresh, device)
 
     @classmethod
     def available_groups(cls):
-        return ['AkPnBcht', 'AkPnBsdf', 'AkPnCGdD', 'AkPnStgb', 'ENSTDkAm', 'ENSTDkCl', 'SptkBGAm', 'SptkBGCl', 'StbgTGd2']
+        return ['train', 'test']
 
     def files(self, group):
-        # Getting the paths
-        flacs = glob(os.path.join(self.path, 'flac', '*_%s.flac' % group))
-        tsvs = [f.replace('/flac/', '/tsv_version2/').replace('.flac', '.tsv') for f in flacs]
+        if group == 'small test':
+            types = ('2303.flac', '2382.flac', '1819.flac')
+            flacs = []
+            for i in types:
+                flacs.extend(glob(os.path.join(self.path, 'test_data', i)))
+            flacs = sorted(flacs)
+            tsvs = sorted(glob(os.path.join(self.path, f'tsv_test_labels/*.tsv')))
+        else:
+            flacs = sorted(glob(os.path.join(self.path, f'{group}_data/*.flac')))
+            tsvs = sorted(glob(os.path.join(self.path, f'tsv_{group}_labels/*.tsv')))
 
         assert(all(os.path.isfile(flac) for flac in flacs))
         assert(all(os.path.isfile(tsv) for tsv in tsvs))
 
-        return sorted(zip(flacs, tsvs))
+        return zip(flacs, tsvs)
