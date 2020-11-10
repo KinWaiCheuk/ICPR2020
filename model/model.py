@@ -10,6 +10,8 @@ import sys
 batchNorm_momentum = 0.1
 num_instruments = 1
 
+
+
 class Normalization():
     """This class is for normalizing the spectrograms batch by batch. The normalization used is min-max, two modes 'framewise' and 'imagewise' can be selected. In this paper, we found that 'imagewise' normalization works better than 'framewise'"""
     def __init__(self, mode='framewise'):
@@ -37,7 +39,7 @@ class Normalization():
         return self.normalize(x)
 
 class Net(nn.Module):
-    def __init__(self, ds_ksize, ds_stride, log=True, reconstruction=True, mode='framewise', spec='CQT', norm=1):
+    def __init__(self, ds_ksize, ds_stride, log=True, reconstruction=True, mode='framewise', spec='CQT', norm=1, device='cpu'):
         super(Net, self).__init__()
         global N_BINS # using the N_BINS parameter from constant.py
         
@@ -45,31 +47,31 @@ class Net(nn.Module):
         if spec == 'CQT':
             r=2
             N_BINS = 88*r
-            self.spectrogram = Spectrogram.CQT1992v2(SAMPLE_RATE, HOP_LENGTH, device='cpu',
-                                                     n_bins=N_BINS, bins_per_octave=12*r, fmin=27.5 ,trainable=False)            
+            self.spectrogram = Spectrogram.CQT1992v2(sr=SAMPLE_RATE, hop_length=HOP_LENGTH,
+                                                      n_bins=N_BINS, fmin=27.5, 
+                                                      bins_per_octave=12*r, trainable=False)            
         elif spec == 'Mel':
-            self.spectrogram = Spectrogram.MelSpectrogram(SAMPLE_RATE, WINDOW_LENGTH, N_BINS, HOP_LENGTH,
-                                                          fmin=MEL_FMIN, fmax=MEL_FMAX, trainable_mel=False,
-                                                          trainable_STFT=False, device='cpu')
+            self.spectrogram = Spectrogram.MelSpectrogram(sr=SAMPLE_RATE, win_length=WINDOW_LENGTH, n_mels=N_BINS,
+                                                          hop_length=HOP_LENGTH, fmin=MEL_FMIN, fmax=MEL_FMAX,
+                                                          trainable_mel=False, trainable_STFT=False)
         else:
             print(f'Please select a correct spectrogram')                
-        
-        
+
         self.log = log
         self.normalize = Normalization(mode)
         self.norm = norm            
-        self.reconstruction = reconstruction
+        self.reconstruction = reconstruction            
             
         self.Unet1_encoder = Encoder(ds_ksize, ds_stride)
         self.Unet1_decoder = Decoder(ds_ksize, ds_stride)
         self.lstm1 = nn.LSTM(N_BINS, N_BINS, batch_first=True, bidirectional=True)    
         self.linear1 = nn.Linear(N_BINS*2, 88)        
-        
-        
-        self.Unet2_encoder = Encoder(ds_ksize, ds_stride)
-        self.Unet2_decoder = Decoder(ds_ksize, ds_stride)   
-        self.lstm2 = nn.LSTM(88, N_BINS, batch_first=True, bidirectional=True)
-        self.linear2 = nn.Linear(N_BINS*2, N_BINS)
+
+        if reconstruction==True:
+            self.Unet2_encoder = Encoder(ds_ksize, ds_stride)
+            self.Unet2_decoder = Decoder(ds_ksize, ds_stride)   
+            self.lstm2 = nn.LSTM(88, N_BINS, batch_first=True, bidirectional=True)
+            self.linear2 = nn.Linear(N_BINS*2, N_BINS)             
                
     def forward(self, x):
 

@@ -15,7 +15,7 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 
-from evaluate import evaluate_wo_velocity
+from model.evaluate_fn import evaluate_wo_velocity
 from model import *
 
 import matplotlib.pyplot as plt
@@ -93,8 +93,8 @@ def train(spec, resume_iteration, train_on, batch_size, sequence_length,
         validation_dataset = MusicNet(groups=['test'], sequence_length=sequence_length, device=device, refresh=refresh)
 
     else:
-        dataset = MAPS(groups=['AkPnBcht', 'AkPnBsdf', 'AkPnCGdD', 'AkPnStgb', 'SptkBGAm', 'SptkBGCl', 'StbgTGd2'], sequence_length=sequence_length, device=device, refresh=refresh)
-        validation_dataset = MAPS(groups=['ENSTDkAm', 'ENSTDkCl'], sequence_length=validation_length, device=device, refresh=refresh)
+        dataset = MAPS(groups=['AkPnBcht', 'AkPnBsdf', 'AkPnCGdD', 'AkPnStgb', 'SptkBGAm', 'SptkBGCl', 'StbgTGd2'], sequence_length=sequence_length, overlap=False, device=device, refresh=refresh)
+        validation_dataset = MAPS(groups=['ENSTDkAm', 'ENSTDkCl'], sequence_length=validation_length, overlap=True, device=device, refresh=refresh)
         
     full_validation = MAPS(groups=['ENSTDkAm', 'ENSTDkCl'], sequence_length=None, device=device, refresh=refresh)
 
@@ -103,7 +103,7 @@ def train(spec, resume_iteration, train_on, batch_size, sequence_length,
     batch_visualize = next(iter(valloader)) # Getting one fixed batch for visualization
 
     if resume_iteration is None:
-        model = Net(ds_ksize,ds_stride, log=True, reconstruction=reconstruction, mode=mode, spec=spec, norm=sparsity)
+        model = Net(ds_ksize,ds_stride, log=True, reconstruction=reconstruction, mode=mode, spec=spec, norm=sparsity, device=device)
         model.to(device)
         optimizer = torch.optim.Adam(model.parameters(), learning_rate)
         resume_iteration = 0

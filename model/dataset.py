@@ -3,6 +3,7 @@ import os
 from abc import abstractmethod
 from glob import glob
 import sys
+import pickle
 
 
 import numpy as np
@@ -172,7 +173,8 @@ class MAESTRO(PianoRollAudioDataset):
 
 
 class MAPS(PianoRollAudioDataset):
-    def __init__(self, path='../MAPS', groups=None, sequence_length=None, seed=42, refresh=False, device='cpu'):
+    def __init__(self, path='./MAPS', groups=None, sequence_length=None, overlap=True, seed=42, refresh=False, device='cpu'):
+        self.overlap = overlap
         super().__init__(path, groups if groups is not None else ['ENSTDkAm', 'ENSTDkCl'], sequence_length, seed, refresh, device)
 
     @classmethod
@@ -181,9 +183,18 @@ class MAPS(PianoRollAudioDataset):
 
     def files(self, group):
         flacs = glob(os.path.join(self.path, 'flac', '*_%s.flac' % group))
+        if self.overlap==False:
+            with open('overlapping.pkl', 'rb') as f:
+                test_names = pickle.load(f)
+            filtered_flacs = []    
+            for i in flacs:
+                if any([substring in i for substring in test_names]):
+                    pass
+                else:
+                    filtered_flacs.append(i)
+            flacs = filtered_flacs 
         # tsvs = [f.replace('/flac/', '/tsv/matched/').replace('.flac', '.tsv') for f in flacs]
         tsvs = [f.replace('/flac/', '/tsvs/').replace('.flac', '.tsv') for f in flacs]
-
         assert(all(os.path.isfile(flac) for flac in flacs))
         assert(all(os.path.isfile(tsv) for tsv in tsvs))
 

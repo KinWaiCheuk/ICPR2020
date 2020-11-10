@@ -1,110 +1,104 @@
-import argparse
 import os
-import sys
-from collections import defaultdict
+
+
+from datetime import datetime
+import pickle
 
 import numpy as np
-from mir_eval.multipitch import evaluate as evaluate_frames
-from mir_eval.transcription import precision_recall_f1_overlap as evaluate_notes
-from mir_eval.transcription_velocity import precision_recall_f1_overlap as evaluate_notes_with_velocity
-from mir_eval.util import midi_to_hz
-import mir_eval
-from sklearn.metrics import average_precision_score
-from scipy.stats import hmean
+from sacred import Experiment
+from sacred.commands import print_config, save_config
+from sacred.observers import FileStorageObserver
+from torch.nn.utils import clip_grad_norm_
+from torch.optim.lr_scheduler import StepLR
+from torch.utils.data import DataLoader
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+
+from model.evaluate_fn import evaluate_wo_velocity
 from model import *
 
-eps = sys.float_info.epsilon
+import matplotlib.pyplot as plt
+ex = Experiment('Evaluation')
 
-def evaluate_wo_velocity(data, model, onset_threshold=0.5, frame_threshold=0.5, save_path=None, reconstruction=True):
-    metrics = defaultdict(list)
+# parameters for the network (These parameters works the best)
+ds_ksize, ds_stride = (2,2),(2,2)
+mode = 'imagewise'
+sparsity = 1
+log = True # Turn on log magnitude scale spectrograms.
 
-    for label in data:
-        pred, losses, _ = model.run_on_batch(label)
+def removing_nnAudio_parameters(state_dict):
+    pop_list = []
+    for i in state_dict.keys():
+        if i.startswith('spectrogram'):
+            pop_list.append(i)
 
-        for key, loss in losses.items():
-            metrics[key].append(loss.item())
+    print(f'The following weights will be remove:\n{pop_list}')
+    decision = input("Do you want to proceed? [y/n] ")
 
-        for key, value in pred.items():
-            value.squeeze_(0).relu_()
+    while True:
+        if decision.lower()=='y':        
+            for i in pop_list:
+                state_dict.pop(i)
+            return state_dict   
+        elif decision.lower()=='n':
+            return state_dict  
 
-        p_ref, i_ref = extract_notes_wo_velocity(label['onset'], label['frame'])
-        p_est, i_est = extract_notes_wo_velocity(pred['onset'], pred['frame'], onset_threshold, frame_threshold)
+        print(f'Please choose only [y] or [n]')
+        decision = input("Do you want to proceed? [y/n] ")  
 
-     
 
-        # print(f"p_ref = {p_ref}\n p_est = {p_est}")
+@ex.config
+def config():
+    weight_file = 'MAESTRO-CQT-transcriber_only'
+    logdir = os.path.join('results', weight_file)
+    unpacked_weight_name = weight_file.split('-')
+    spec =unpacked_weight_name[1]
+    dataset = 'MAPS'
+    device = 'cuda:0'
+    
+    if weight_file.split('-')[-1] == "transcriber_only":
+        reconstruction = False
+    elif weight_file.split('-')[-1] == "transcriber_reconstructor":
+        reconstruction = True
+    print(f'reconstruction = {reconstruction}')
+#     reconstruction = True
+    
+    leave_one_out = None
         
-        t_ref, f_ref = notes_to_frames(p_ref, i_ref, label['frame'].shape)
-        t_est, f_est = notes_to_frames(p_est, i_est, pred['frame'].shape)
+@ex.automain
+def train(spec, dataset, device, reconstruction, logdir, leave_one_out, weight_file): 
+    print_config(ex.current_run)
 
-        scaling = HOP_LENGTH / SAMPLE_RATE
+    # Choosing the dataset to use
+    if dataset == 'MAESTRO':
+        validation_dataset = MAESTRO(path='../../MAESTRO/', groups=['test'], sequence_length=None, device=device)
 
-        # Converting time steps to seconds and midi number to frequency
-        i_ref = (i_ref * scaling).reshape(-1, 2)
-        p_ref = np.array([midi_to_hz(MIN_MIDI + midi) for midi in p_ref])
-        i_est = (i_est * scaling).reshape(-1, 2)
-        p_est = np.array([midi_to_hz(MIN_MIDI + midi) for midi in p_est])
+    elif dataset == 'MusicNet':
+        validation_dataset = MusicNet(groups=['small test'], sequence_length=None, device=device)
 
-        t_ref = t_ref.astype(np.float64) * scaling
-        f_ref = [np.array([midi_to_hz(MIN_MIDI + midi) for midi in freqs]) for freqs in f_ref]
-        t_est = t_est.astype(np.float64) * scaling
-        f_est = [np.array([midi_to_hz(MIN_MIDI + midi) for midi in freqs]) for freqs in f_est]
-       
-        p, r, f, o = evaluate_notes(i_ref, p_ref, i_est, p_est, offset_ratio=None)
-        metrics['metric/note/precision'].append(p)
-        metrics['metric/note/recall'].append(r)
-        metrics['metric/note/f1'].append(f)
-        metrics['metric/note/overlap'].append(o)     
-
-        p, r, f, o = evaluate_notes(i_ref, p_ref, i_est, p_est)
-        metrics['metric/note-with-offsets/precision'].append(p)
-        metrics['metric/note-with-offsets/recall'].append(r)
-        metrics['metric/note-with-offsets/f1'].append(f)
-        metrics['metric/note-with-offsets/overlap'].append(o)
-     
-        frame_metrics = evaluate_frames(t_ref, f_ref, t_est, f_est)
-        metrics['metric/frame/f1'].append(hmean([frame_metrics['Precision'] + eps, frame_metrics['Recall'] + eps]) - eps)
-
-        avp = average_precision_score(label['frame'].cpu().detach().flatten() ,pred['frame'].cpu().detach().flatten())
-        metrics['metric/MusicNet/micro_avg_P'].append(avp)     
+    else:
+        validation_dataset = MAPS(groups=['ENSTDkAm', 'ENSTDkCl'], sequence_length=None, overlap=True, device=device)
         
-        if reconstruction:
-            p_est2, i_est2 = extract_notes_wo_velocity(pred['onset2'], pred['frame2'], onset_threshold, frame_threshold)   
-            t_est2, f_est2 = notes_to_frames(p_est2, i_est2, pred['frame2'].shape)               
 
-            i_est2 = (i_est2 * scaling).reshape(-1, 2)
-            p_est2 = np.array([midi_to_hz(MIN_MIDI + midi) for midi in p_est2])        
+    model = Net(ds_ksize,ds_stride, log=log, reconstruction=reconstruction, mode=mode, spec=spec, norm=sparsity)
+    model.to(device)
+    model_path = os.path.join('trained_weights', weight_file)
+    state_dict = torch.load(model_path)
+    model.load_my_state_dict(state_dict)
 
-            t_est2 = t_est2.astype(np.float64) * scaling
-            f_est2 = [np.array([midi_to_hz(MIN_MIDI + midi) for midi in freqs]) for freqs in f_est2]
+    summary(model)
+    
+    with torch.no_grad():
+        model = model.eval()
+        metrics = evaluate_wo_velocity(tqdm(validation_dataset), model, reconstruction=reconstruction,
+                                    save_path=os.path.join(logdir,f'./{dataset}_MIDI_results'))
 
-            p2, r2, f2, o2 = evaluate_notes(i_ref, p_ref, i_est2, p_est2, offset_ratio=None)
-            metrics['metric/note/precision_2'].append(p2)
-            metrics['metric/note/recall_2'].append(r2)
-            metrics['metric/note/f1_2'].append(f2)
-            metrics['metric/note/overlap_2'].append(o2)             
+    for key, values in metrics.items():
+        if key.startswith('metric/'):
+            _, category, name = key.split('/')
+            print(f'{category:>32} {name:25}: {np.mean(values):.3f} ± {np.std(values):.3f}')
 
-            frame_metrics2 = evaluate_frames(t_ref, f_ref, t_est2, f_est2)
-            frame_metrics['Precision_2'] = frame_metrics2['Precision']
-            frame_metrics['Recall_2'] = frame_metrics2['Recall']
-            frame_metrics['accuracy_2'] = frame_metrics2['Accuracy']
-            metrics['metric/frame/f1_2'].append(hmean([frame_metrics['Precision_2'] + eps, frame_metrics['Recall_2'] + eps]) - eps)            
-            avp = average_precision_score(label['frame'].cpu().detach().flatten() ,pred['frame2'].cpu().detach().flatten())
-            metrics['metric/MusicNet/micro_avg_P2'].append(avp)               
-            
-        for key, loss in frame_metrics.items():
-            metrics['metric/frame/' + key.lower().replace(' ', '_')].append(loss)
-
-        if save_path is not None:
-            os.makedirs(save_path, exist_ok=True)
-            label_path = os.path.join(save_path, os.path.basename(label['path']) + '.label.png')
-            save_pianoroll(label_path, label['onset'], label['frame'])
-            pred_path = os.path.join(save_path, os.path.basename(label['path']) + '.pred.png')
-            save_pianoroll(pred_path, pred['onset'], pred['frame'])
-            midi_path = os.path.join(save_path, os.path.basename(label['path']) + '.pred.mid')
-            save_midi(midi_path, p_est, i_est, [127]*len(p_est))
-
-    return metrics  
+    export_path = os.path.join(logdir, f'{dataset}_result_dict')    
+    pickle.dump(metrics, open(export_path, 'wb'))
 

@@ -1,0 +1,7 @@
+torch == 1.6.0
+torchvision == 0.7.0
+tensorboard == 2.2.0
+numpy == 1.19.1
+matplotlib == 3.0.2
+sacred == 0.8.1
+nnAudio == 0.2.0
